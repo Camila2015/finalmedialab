@@ -152,6 +152,7 @@ if img is not None:
         colorscale="Gray",
     ))
 
+    # Añadir la línea entre los puntos A y B
     fig3d.add_trace(go.Scatter3d(
         x=[x1, x2],
         y=[y1, y2],
@@ -174,4 +175,3 @@ st.markdown("""
     Brachyanalysis - Visualizador de imágenes DICOM
 </div>
 """, unsafe_allow_html=True)
-
