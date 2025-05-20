@@ -82,10 +82,8 @@ if img is not None:
     default_wc = min_val + default_ww / 2
     ww, wc = default_ww, default_wc
 
-    # Control de corte (eje)
     corte = st.sidebar.radio("Selecciona el tipo de corte", ("Axial", "Coronal", "Sagital"))
-    
-    # Validación de índices para cada tipo de corte
+
     if corte == "Axial":
         corte_idx = st.sidebar.slider("Selecciona el índice axial", 0, n_ax - 1, n_ax // 2)
         axial_img = img[corte_idx, :, :]
@@ -108,23 +106,21 @@ if img is not None:
         ax.imshow(apply_window_level(slice2d, ww, wc), cmap='gray', origin='lower')
         return fig
 
-    # Establecer cuadrantes según la cantidad de imágenes
     rows = 2
     cols = 2
     fig, axs = plt.subplots(rows, cols, figsize=(10, 10))
 
-    # Crear las imágenes para cada cuadrante
     images_to_show = [
-        axial_img,   # Axial
-        coronal_img, # Coronal
-        sagital_img, # Sagital
-        img[corte_idx, :, :]  # Imagen seleccionada de acuerdo al corte
+        axial_img,
+        coronal_img,
+        sagital_img,
+        img[corte_idx, :, :]
     ]
 
     for i in range(4):
         row = i // cols
         col = i % cols
-        ax = axs[row, col]  # Seleccionar el cuadrante correspondiente
+        ax = axs[row, col]
         ax.axis('off')
         ax.imshow(apply_window_level(images_to_show[i], ww, wc), cmap='gray', origin='lower')
 
@@ -133,6 +129,21 @@ if img is not None:
     target_shape = (64, 64, 64)
     img_resized = resize(original_image, target_shape, anti_aliasing=True)
     x, y, z = np.mgrid[0:target_shape[0], 0:target_shape[1], 0:target_shape[2]]
+
+    # --- Inputs manuales para puntos A y B ---
+    st.sidebar.markdown('<p class="sub-header">Añadir línea entre puntos 3D</p>', unsafe_allow_html=True)
+
+    with st.sidebar.expander("Coordenadas del Punto A"):
+        x1 = st.number_input("x1", min_value=0, max_value=target_shape[0]-1, value=10)
+        y1 = st.number_input("y1", min_value=0, max_value=target_shape[1]-1, value=10)
+        z1 = st.number_input("z1", min_value=0, max_value=target_shape[2]-1, value=10)
+
+    with st.sidebar.expander("Coordenadas del Punto B"):
+        x2 = st.number_input("x2", min_value=0, max_value=target_shape[0]-1, value=50)
+        y2 = st.number_input("y2", min_value=0, max_value=target_shape[1]-1, value=50)
+        z2 = st.number_input("z2", min_value=0, max_value=target_shape[2]-1, value=50)
+
+    # --- Render del visor 3D con volumen y línea ---
     fig3d = go.Figure(data=go.Volume(
         x=x.flatten(), y=y.flatten(), z=z.flatten(),
         value=img_resized.flatten(),
@@ -140,6 +151,17 @@ if img is not None:
         surface_count=15,
         colorscale="Gray",
     ))
+
+    fig3d.add_trace(go.Scatter3d(
+        x=[x1, x2],
+        y=[y1, y2],
+        z=[z1, z2],
+        mode='markers+lines',
+        marker=dict(size=6, color='red'),
+        line=dict(color='blue', width=4),
+        name='Línea A-B'
+    ))
+
     fig3d.update_layout(margin=dict(l=0, r=0, b=0, t=0))
 
     st.subheader("Vista 3D")
@@ -152,3 +174,4 @@ st.markdown("""
     Brachyanalysis - Visualizador de imágenes DICOM
 </div>
 """, unsafe_allow_html=True)
+
