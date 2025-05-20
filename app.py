@@ -5,13 +5,16 @@ import tempfile
 
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
 import streamlit as st
 import SimpleITK as sitk
 from skimage.transform import resize
 import plotly.graph_objects as go
 
-st.set_page_config(layout="wide", page_title="Brachyanalysis")
+# streamlit-plotly-events must be installed:
+# pip install streamlit-plotly-events
+from streamlit_plotly_events import plotly_events
+
+st.set_page_config(layout="wide", page_title="Brachyanalysis - Click 3D Points")
 
 st.markdown("""
 <style>
@@ -130,20 +133,22 @@ if img is not None:
     img_resized = resize(original_image, target_shape, anti_aliasing=True)
     x, y, z = np.mgrid[0:target_shape[0], 0:target_shape[1], 0:target_shape[2]]
 
-    # --- Inputs manuales para puntos A y B ---
-    st.sidebar.markdown('<p class="sub-header">Añadir línea entre puntos 3D</p>', unsafe_allow_html=True)
+    st.sidebar.markdown('<p class="sub-header">Definir línea 3D con clicks</p>', unsafe_allow_html=True)
+    st.sidebar.markdown("""
+    Instrucciones:
+    - Haz click en la visualización 3D para establecer el punto A.
+    - Haz un segundo click para establecer el punto B.
+    - Para reiniciar, pulsa el botón 'Resetear puntos'.
+    """, unsafe_allow_html=True)
 
-    with st.sidebar.expander("Coordenadas del Punto A"):
-        x1 = st.number_input("x1", min_value=0, max_value=target_shape[0]-1, value=10)
-        y1 = st.number_input("y1", min_value=0, max_value=target_shape[1]-1, value=10)
-        z1 = st.number_input("z1", min_value=0, max_value=target_shape[2]-1, value=10)
+    # Storage for points A and B
+    if "points_selected" not in st.session_state:
+        st.session_state.points_selected = []
 
-    with st.sidebar.expander("Coordenadas del Punto B"):
-        x2 = st.number_input("x2", min_value=0, max_value=target_shape[0]-1, value=50)
-        y2 = st.number_input("y2", min_value=0, max_value=target_shape[1]-1, value=50)
-        z2 = st.number_input("z2", min_value=0, max_value=target_shape[2]-1, value=50)
+    if st.sidebar.button("Resetear puntos"):
+        st.session_state.points_selected = []
 
-    # --- Render del visor 3D con volumen y línea ---
+    # Build figure with volume
     fig3d = go.Figure(data=go.Volume(
         x=x.flatten(), y=y.flatten(), z=z.flatten(),
         value=img_resized.flatten(),
@@ -152,18 +157,59 @@ if img is not None:
         colorscale="Gray",
     ))
 
-    # Añadir la línea entre los puntos A y B
-    fig3d.add_trace(go.Scatter3d(
-        x=[x1, x2],
-        y=[y1, y2],
-        z=[z1, z2],
-        mode='markers+lines',
-        marker=dict(size=6, color='red'),
-        line=dict(color='blue', width=4),
-        name='Línea A-B'
-    ))
+    # If points defined add line and markers
+    points = st.session_state.points_selected
+    if len(points) > 0:
+        xs, ys, zs = zip(*points)
+        fig3d.add_trace(go.Scatter3d(
+            x=xs,
+            y=ys,
+            z=zs,
+            mode='markers+lines' if len(points) == 2 else 'markers',
+            marker=dict(size=6, color='red'),
+            line=dict(color='blue', width=4) if len(points) == 2 else None,
+            name='Línea A-B'
+        ))
 
-    fig3d.update_layout(margin=dict(l=0, r=0, b=0, t=0))
+    fig3d.update_layout(
+        margin=dict(l=0, r=0, b=0, t=0),
+        scene=dict(
+            xaxis_title='X',
+            yaxis_title='Y',
+            zaxis_title='Z',
+            aspectmode='data'
+        )
+    )
+
+    # Capture click events using streamlit-plotly-events
+    clicked_points = plotly_events(
+        fig3d,
+        click_event=True,
+        hover_event=False,
+        select_event=False,
+        override_height=600,
+        key="3d_volume"
+    )
+
+    # When user clicks on 3D plot, record the coords as nearest voxel coords
+    if clicked_points:
+        click = clicked_points[0]  # Only one click at a time
+        # click dict example: {'pointNumber': 0, 'curveNumber': 1, 'x': value, 'y': value, 'z': value}
+        x_click, y_click, z_click = click['x'], click['y'], click['z']
+
+        # Clip and round to integer voxel indices
+        xi = int(np.clip(round(x_click), 0, target_shape[0] - 1))
+        yi = int(np.clip(round(y_click), 0, target_shape[1] - 1))
+        zi = int(np.clip(round(z_click), 0, target_shape[2] - 1))
+
+        # Add point if less than 2 points selected
+        if len(st.session_state.points_selected) < 2:
+            st.session_state.points_selected.append((xi, yi, zi))
+        else:
+            # Replace second point if already two points selected
+            st.session_state.points_selected[1] = (xi, yi, zi)
+
+        # Rerun the app to pick up the change; this happens automatically on Streamlit interaction
 
     st.subheader("Vista 3D")
     st.plotly_chart(fig3d, use_container_width=True)
@@ -172,6 +218,7 @@ st.markdown('<p class="giant-title">Brachyanalysis</p>', unsafe_allow_html=True)
 st.markdown("""
 <hr>
 <div style="text-align:center;color:#28aec5;font-size:14px;">
-    Brachyanalysis - Visualizador de imágenes DICOM
+    Brachyanalysis - Visualizador de imágenes DICOM - con selección 3D por click
 </div>
 """, unsafe_allow_html=True)
+
