@@ -164,25 +164,6 @@ if img is not None:
             x=xg.flatten(), y=yg.flatten(), z=zg.flatten(),
             value=resized.flatten(), opacity=0.1, surface_count=15, colorscale='Gray'
         )])
-
-        # Visualizar estructuras (contornos)
-        if 'structures' in st.session_state:
-            structures = st.session_state['structures']
-            for name, struct in structures.items():
-                color = struct['color']
-                rgb_color = f"rgb({int(color[0]*255)}, {int(color[1]*255)}, {int(color[2]*255)})"
-                for contour in struct['contours']:
-                    pts = contour['points']
-                    fig3d.add_trace(go.Scatter3d(
-                        x=pts[:, 0],
-                        y=pts[:, 1],
-                        z=pts[:, 2],
-                        mode='lines',
-                        line=dict(color=rgb_color, width=2),
-                        name=name,
-                        opacity=0.6
-                    ))
-
         for d in st.session_state['needles']:
             (x1,y1,z1),(x2,y2,z2) = d['points']
             if d['curved']:
