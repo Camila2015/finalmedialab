@@ -164,12 +164,15 @@ if img is not None:
                 pts = ((r['X1'], r['Y1'], r['Z1']), (r['X2'], r['Y2'], r['Z2']))
                 st.session_state['needles'].append({'points': pts, 'color': r['Color'], 'curved': (r['Forma'] == 'Curva')})
 
-        # Render 3D
+        # Render 3D con colores segmentados
         xg, yg, zg = np.mgrid[0:64, 0:64, 0:64]
+        vol_values = resized.flatten()
+        seg_colorscale = [[0, 'black'], [0.2, 'blue'], [0.4, 'green'], [0.6, 'yellow'], [0.8, 'orange'], [1, 'red']]
         fig3d = go.Figure(data=[go.Volume(
             x=xg.flatten(), y=yg.flatten(), z=zg.flatten(),
-            value=resized.flatten(), opacity=0.1, surface_count=15, colorscale='Gray'
+            value=vol_values, opacity=0.1, surface_count=20, colorscale=seg_colorscale
         )])
+
         for d in st.session_state['needles']:
             (x1, y1, z1), (x2, y2, z2) = d['points']
             if d['curved']:
@@ -184,7 +187,8 @@ if img is not None:
                 marker=dict(size=4, color=d['color']),
                 line=dict(width=3, color=d['color'])
             ))
-        fig3d.update_layout(margin=dict(l=0, r=0, b=0, t=0))
+
+        fig3d.update_layout(margin=dict(l=0, r=0, b=0, t=0), scene=dict(aspectmode="cube"))
         st.subheader('Vista 3D')
         st.plotly_chart(fig3d, use_container_width=True)
 
