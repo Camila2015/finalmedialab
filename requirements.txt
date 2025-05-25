@@ -4,4 +4,6 @@ SimpleITK
 plotly>=5.0.0
 scikit-image
 pydicom
+pyvista
+streamlit-vtkjs
 streamlit-drawable-canvas
