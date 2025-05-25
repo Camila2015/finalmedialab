@@ -118,7 +118,6 @@ if img is not None:
             mode = st.radio('Modo', ['Manual','Aleatoria'], horizontal=True)
             shape = st.radio('Forma', ['Recta','Curva'], horizontal=True)
             count = st.number_input('Cantidad aleatoria', min_value=1, value=1, step=1)
-            origen = st.text_input('Origen (ej: TC, RM, Plan)', value='TC')
             if mode == 'Manual':
                 c1, c2 = st.columns(2)
                 with c1:
@@ -130,6 +129,7 @@ if img is not None:
                     y2 = st.number_input('Y2', 0.0, 64.0, 32.0)
                     z2 = st.number_input('Z2', 0.0, 64.0, 32.0)
             if st.button('Agregar aguja'):
+                # Generar una o varias según modo
                 times = count if mode == 'Aleatoria' else 1
                 for _ in range(times):
                     if mode == 'Aleatoria':
@@ -139,8 +139,7 @@ if img is not None:
                     st.session_state['needles'].append({
                         'points': pts,
                         'color': f"#{random.randint(0,0xFFFFFF):06x}",
-                        'curved': (shape == 'Curva'),
-                        'source': origen
+                        'curved': (shape == 'Curva')
                     })
 
         # Tabla editable
@@ -148,21 +147,16 @@ if img is not None:
         df = pd.DataFrame([{**{'ID':i+1,
                                 'X1':round(p[0],1),'Y1':round(p[1],1),'Z1':round(p[2],1),
                                 'X2':round(q[0],1),'Y2':round(q[1],1),'Z2':round(q[2],1),
-                                'Color':d['color'],'Forma':('Curva' if d['curved'] else 'Recta'),
-                                'Origen': d.get('source','Desconocido'),'Eliminar':False}}
+                                'Color':d['color'],'Forma':('Curva' if d['curved'] else 'Recta'),'Eliminar':False}}
                              for i,d in enumerate(st.session_state['needles'])
                              for p,q in [d['points']]])
         edited = st.data_editor(df, use_container_width=True)
+        # Actualizar estado
         st.session_state['needles'] = []
         for _, r in edited.iterrows():
             if not r['Eliminar']:
                 pts = ((r['X1'],r['Y1'],r['Z1']), (r['X2'],r['Y2'],r['Z2']))
-                st.session_state['needles'].append({
-                    'points': pts,
-                    'color': r['Color'],
-                    'curved': (r['Forma']=='Curva'),
-                    'source': r.get('Origen','Desconocido')
-                })
+                st.session_state['needles'].append({'points': pts, 'color': r['Color'], 'curved': (r['Forma']=='Curva')})
 
         # Render 3D
         xg, yg, zg = np.mgrid[0:64,0:64,0:64]
@@ -173,7 +167,7 @@ if img is not None:
         for d in st.session_state['needles']:
             (x1,y1,z1),(x2,y2,z2) = d['points']
             if d['curved']:
-                t = np.linspace(0,1,50)
+                t = np.linspace(0,1,50);
                 xs = x1*(1-t)+x2*t; ys = y1*(1-t)+y2*t;
                 zs = z1*(1-t)+z2*t + 5*np.sin(np.pi*t)
             else:
@@ -181,8 +175,7 @@ if img is not None:
             fig3d.add_trace(go.Scatter3d(
                 x=xs, y=ys, z=zs, mode='lines+markers',
                 marker=dict(size=4, color=d['color']),
-                line=dict(width=3, color=d['color']),
-                name=d.get('source','Aguja')
+                line=dict(width=3, color=d['color'])
             ))
         fig3d.update_layout(margin=dict(l=0,r=0,b=0,t=0))
         st.subheader('Vista 3D')
@@ -217,5 +210,3 @@ st.markdown("""
     - María Paula Jaimes
 </div>
 """, unsafe_allow_html=True)
-
-
