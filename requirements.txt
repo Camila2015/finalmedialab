@@ -1,9 +1,10 @@
+streamlit
 pandas
 matplotlib
 SimpleITK
 plotly>=5.0.0
 scikit-image
 pydicom
-pyvista
-streamlit-vtkjs
+numpy
+scipy
 streamlit-drawable-canvas
