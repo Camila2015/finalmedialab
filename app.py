@@ -125,7 +125,7 @@ if files:
     p = pv.Plotter(theme=plot_theme, notebook=False, off_screen=True)
     p.add_volume(volume, cmap="gray", opacity="sigmoid")
 
-    # Añadir anotaciones
+       # Añadir anotaciones
     st.sidebar.subheader("Anotaciones 3D")
     annotation_mode = st.sidebar.selectbox("Tipo de anotación", ["Ninguna", "Punto", "Línea recta", "Línea curva"])
 
@@ -133,24 +133,35 @@ if files:
         if 'annotations' not in st.session_state:
             st.session_state.annotations = []
 
-        x = st.sidebar.number_input("X", min_value=0, max_value=img.shape[2]-1)
-        y = st.sidebar.number_input("Y", min_value=0, max_value=img.shape[1]-1)
-        z = st.sidebar.number_input("Z", min_value=0, max_value=img.shape[0]-1)
+        x = st.sidebar.number_input("X", min_value=0, max_value=img.shape[2]-1, value=img.shape[2]//2)
+        y = st.sidebar.number_input("Y", min_value=0, max_value=img.shape[1]-1, value=img.shape[1]//2)
+        z = st.sidebar.number_input("Z", min_value=0, max_value=img.shape[0]-1, value=img.shape[0]//2)
         if st.sidebar.button("Agregar punto"):
-            st.session_state.annotations.append((x, y, z))
+            point = (float(x), float(y), float(z))
+            if point not in st.session_state.annotations:
+                st.session_state.annotations.append(point)
 
         for pt in st.session_state.annotations:
-            p.add_mesh(pv.Sphere(center=pt, radius=1), color='red')
+            try:
+                sphere = pv.Sphere(center=pt, radius=1.0)
+                p.add_mesh(sphere, color='red')
+            except Exception as e:
+                st.warning(f"Error al agregar esfera en {pt}: {e}")
 
         if annotation_mode == "Línea recta" and len(st.session_state.annotations) >= 2:
-            line = draw_line(st.session_state.annotations[-2], st.session_state.annotations[-1])
-            p.add_mesh(line, color='blue', line_width=3)
+            try:
+                line = draw_line(st.session_state.annotations[-2], st.session_state.annotations[-1])
+                p.add_mesh(line, color='blue', line_width=3)
+            except Exception as e:
+                st.warning(f"Error al dibujar línea: {e}")
 
         elif annotation_mode == "Línea curva" and len(st.session_state.annotations) >= 2:
-            spline = draw_spline(st.session_state.annotations)
-            p.add_mesh(spline, color='green', line_width=3)
+            try:
+                spline = draw_spline(st.session_state.annotations)
+                p.add_mesh(spline, color='green', line_width=3)
+            except Exception as e:
+                st.warning(f"Error al dibujar línea curva: {e}")
 
-    stpyvista(p, key="3d")
 
     # Pie de página
     st.markdown("---")
