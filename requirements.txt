@@ -6,5 +6,3 @@ plotly>=5.0.0
 scikit-image
 pydicom
 streamlit-drawable-canvas
-pyvista
-vtk
