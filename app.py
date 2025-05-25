@@ -1,215 +1,156 @@
+import streamlit as st
 import os
-import io
-import zipfile
+import pydicom
+import numpy as np
+import pyvista as pv
+from pyvista import themes
 import tempfile
 import random
 
-import numpy as np
-import matplotlib.pyplot as plt
-import streamlit as st
-import SimpleITK as sitk
-from skimage.transform import resize
-import plotly.graph_objects as go
-import pandas as pd
+# Configurar tema de PyVista
+plotter_theme = themes.DefaultTheme()
+plotter_theme.background = 'black'
+plotter_theme.show_edges = True
 
-# Configuración de la página
-st.set_page_config(layout="wide", page_title="BrachyCervix")
+# Inicializar sesión
+if 'points' not in st.session_state:
+    st.session_state['points'] = []
+if 'lines' not in st.session_state:
+    st.session_state['lines'] = []
+if 'needles' not in st.session_state:
+    st.session_state['needles'] = []
 
-# Estilos globales
-def inject_css():
-    st.markdown("""
-    <style>
-        .giant-title { color: #28aec5; text-align: center; font-size: 72px; margin: 30px 0; font-weight: bold; text-transform: uppercase; letter-spacing: 2px; text-shadow: 2px 2px 4px rgba(0,0,0,0.1); }
-        .sub-header { color: #c0d711; font-size: 24px; margin-bottom: 15px; font-weight: bold; }
-        .stButton>button { background-color: #28aec5; color: white; border: none; border-radius: 4px; padding: 8px 16px; }
-        .stButton>button:hover { background-color: #1c94aa; }
-    </style>
-    """, unsafe_allow_html=True)
+st.title("Visor de Imágenes Médicas DICOM 2D/3D")
 
-inject_css()
+# Subir archivos DICOM
+uploaded_files = st.file_uploader("Sube archivos DICOM", accept_multiple_files=True)
 
-# Sidebar: carga y configuración
-st.sidebar.markdown('<p class="sub-header">Visualizador DICOM</p>', unsafe_allow_html=True)
-uploaded = st.sidebar.file_uploader("ZIP archivos DICOM", type="zip")
+# Leer y procesar archivos DICOM
+if uploaded_files:
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        paths = []
+        for uploaded_file in uploaded_files:
+            path = os.path.join(tmpdirname, uploaded_file.name)
+            with open(path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            paths.append(path)
 
-@st.cache_data
-def load_dicom_series(zip_bytes):
-    temp = tempfile.mkdtemp()
-    with zipfile.ZipFile(io.BytesIO(zip_bytes), 'r') as z:
-        z.extractall(temp)
-    series = []
-    for root, _, _ in os.walk(temp):
+        # Leer los datos DICOM
+        datasets = [pydicom.dcmread(p) for p in paths]
+        datasets.sort(key=lambda x: float(x.ImagePositionPatient[2]))
+
+        # Construir el volumen 3D
         try:
-            ids = sitk.ImageSeriesReader.GetGDCMSeriesIDs(root)
-            for sid in ids:
-                files = sitk.ImageSeriesReader.GetGDCMSeriesFileNames(root, sid)
-                if files:
-                    series.append((sid, files))
-        except:
-            pass
-    return series
+            volume = np.stack([ds.pixel_array for ds in datasets])
+            volume = volume.astype(np.int16)
 
-# Carga DICOM
-dicom_series = []
-if uploaded:
-    dicom_series = load_dicom_series(uploaded.read())
-    if dicom_series:
-        choices = [f"Serie {i+1}: {sid[:10]} ({len(files)} cortes)" for i, (sid, files) in enumerate(dicom_series)]
-        sel = st.sidebar.selectbox("Selecciona serie:", choices)
-        idx = choices.index(sel)
-        reader = sitk.ImageSeriesReader()
-        reader.SetFileNames(dicom_series[idx][1])
-        vol = reader.Execute()
-        img = sitk.GetArrayViewFromImage(vol)
-        original = img.copy()
-    else:
-        st.sidebar.error("No DICOM válidos en ZIP")
-else:
-    img = None
+            # Obtener dimensiones y espaciamiento
+            spacing = list(map(float, datasets[0].PixelSpacing))
+            spacing.append(float(datasets[0].SliceThickness))
+            spacing = spacing[::-1]  # z, y, x
+            vol_shape = volume.shape
 
-# Función de ventana
-def apply_window(image, ww, wc):
-    arr = image.astype(float)
-    mn, mx = wc - ww/2, wc + ww/2
-    return np.clip((arr - mn) / (mx - mn), 0, 1)
+            grid = pv.UniformGrid()
+            grid.dimensions = np.array(vol_shape) + 1
+            grid.origin = (0, 0, 0)
+            grid.spacing = spacing
+            grid.cell_data["values"] = volume.flatten(order="F")
+        except Exception as e:
+            st.error(f"Error procesando los archivos DICOM: {e}")
+            st.stop()
 
-# Mostrar imágenes 2D
-if img is not None:
-    n_ax, n_cor, n_sag = img.shape
-    mn, mx = float(img.min()), float(img.max())
-    default = {'ww': mx-mn, 'wc': mn + (mx-mn)/2}
+        # Selección de vista
+        view = st.radio("Selecciona la vista", ["2D", "3D"])
 
-    sync = st.sidebar.checkbox('Sincronizar cortes', True)
-    if sync:
-        orientation = st.sidebar.radio('Corte', ['Axial','Coronal','Sagital'])
-        limits = {'Axial':n_ax,'Coronal':n_cor,'Sagital':n_sag}
-        idx = st.sidebar.slider('Índice', 0, limits[orientation]-1, limits[orientation]//2)
-    else:
-        orientation = st.sidebar.selectbox('Corte', ['Axial','Coronal','Sagital'])
-        idx = st.sidebar.slider('Índice', 0, img.shape[['Axial','Coronal','Sagital'].index(orientation)]-1,
-                                 img.shape[['Axial','Coronal','Sagital'].index(orientation)]//2)
-    invert = st.sidebar.checkbox('Negativo', False)
-    wtype = st.sidebar.selectbox('Tipo ventana', ['Default','Abdomen','Hueso','Pulmón'])
-    presets = {'Abdomen':(400,40),'Hueso':(2000,500),'Pulmón':(1500,-600)}
-    ww, wc = presets.get(wtype, (default['ww'], default['wc']))
+        if view == "2D":
+            axis = st.radio("Eje", ["Sagital", "Coronal", "Axial"])
+            slice_idx = st.slider("Índice de la imagen", 0, volume.shape[0]-1 if axis == "Axial" else volume.shape[1]-1 if axis == "Coronal" else volume.shape[2]-1)
 
-    slices = {
-        'Axial': img[idx,:,:],
-        'Coronal': img[:,idx,:],
-        'Sagital': img[:,:,idx]
-    }
-    cols = st.columns(3)
-    for col,(name,data) in zip(cols, slices.items()):
-        with col:
-            st.markdown(name)
-            fig, ax = plt.subplots(); ax.axis('off')
-            img2d = apply_window(data, ww, wc)
-            if invert: img2d = 1 - img2d
-            ax.imshow(img2d, cmap='gray', origin='lower'); st.pyplot(fig)
+            if axis == "Axial":
+                img = volume[slice_idx, :, :]
+            elif axis == "Coronal":
+                img = volume[:, slice_idx, :]
+            elif axis == "Sagital":
+                img = volume[:, :, slice_idx]
 
-    # 3D y agujas
-    if st.sidebar.checkbox('Mostrar 3D', True):
-        resized = resize(original, (64,64,64), anti_aliasing=True)
-        if 'needles' not in st.session_state:
-            st.session_state['needles'] = []
+            st.image(img, caption=f"Vista {axis} - Corte {slice_idx}", clamp=True)
 
-        # Controles de creación con cantidad múltiple
-        with st.expander('Nueva aguja'):
-            mode = st.radio('Modo', ['Manual','Aleatoria'], horizontal=True)
-            shape = st.radio('Forma', ['Recta','Curva'], horizontal=True)
-            count = st.number_input('Cantidad aleatoria', min_value=1, value=1, step=1)
-            if mode == 'Manual':
-                c1, c2 = st.columns(2)
-                with c1:
-                    x1 = st.number_input('X1', 0.0, 64.0, 32.0)
-                    y1 = st.number_input('Y1', 0.0, 64.0, 32.0)
-                    z1 = st.number_input('Z1', 0.0, 64.0, 32.0)
-                with c2:
-                    x2 = st.number_input('X2', 0.0, 64.0, 32.0)
-                    y2 = st.number_input('Y2', 0.0, 64.0, 32.0)
-                    z2 = st.number_input('Z2', 0.0, 64.0, 32.0)
-           if st.button('Agregar aguja'):
-    # Generar una o varias según modo
-    times = count if mode == 'Aleatoria' else 1
-    for _ in range(times):
-        if mode == 'Aleatoria':
-            z_val = random.randint(29, 36)
-            xa, ya, za = 32, 32, z_val
-            xb, yb, zb = 39, 32, z_val
-        pts = ((x1,y1,z1),(x2,y2,z2)) if mode == 'Manual' else ((xa,ya,za),(xb,yb,zb))
-        st.session_state['needles'].append({
-            'points': pts,
-            'color': f"#{random.randint(0,0xFFFFFF):06x}",
-            'curved': (shape == 'Curva')
-        })
+        else:
+            plotter = pv.Plotter(theme=plotter_theme, window_size=[800,800])
+            opacity = st.slider("Opacidad del volumen", 0.0, 1.0, 0.15)
+            plotter.add_volume(grid, opacity=opacity, cmap="bone")
 
+            # Mostrar puntos marcados
+            for i, pt in enumerate(st.session_state['points']):
+                plotter.add_mesh(pv.Sphere(radius=1.0, center=pt), color="red")
+                plotter.add_point_labels([pt], [str(i)], point_size=20, font_size=36)
 
-        # Tabla editable
-        st.markdown('### Registro de agujas')
-        df = pd.DataFrame([{**{'ID':i+1,
-                                'X1':round(p[0],1),'Y1':round(p[1],1),'Z1':round(p[2],1),
-                                'X2':round(q[0],1),'Y2':round(q[1],1),'Z2':round(q[2],1),
-                                'Color':d['color'],'Forma':('Curva' if d['curved'] else 'Recta'),'Eliminar':False}}
-                             for i,d in enumerate(st.session_state['needles'])
-                             for p,q in [d['points']]])
-        edited = st.data_editor(df, use_container_width=True)
-        # Actualizar estado
-        st.session_state['needles'] = []
-        for _, r in edited.iterrows():
-            if not r['Eliminar']:
-                pts = ((r['X1'],r['Y1'],r['Z1']), (r['X2'],r['Y2'],r['Z2']))
-                st.session_state['needles'].append({'points': pts, 'color': r['Color'], 'curved': (r['Forma']=='Curva')})
+            # Mostrar líneas dibujadas
+            for ln in st.session_state['lines']:
+                line = pv.Line(ln[0], ln[1])
+                plotter.add_mesh(line, color="green", line_width=5)
 
-        # Render 3D
-        xg, yg, zg = np.mgrid[0:64,0:64,0:64]
-        fig3d = go.Figure(data=[go.Volume(
-            x=xg.flatten(), y=yg.flatten(), z=zg.flatten(),
-            value=resized.flatten(), opacity=0.1, surface_count=15, colorscale='Gray'
-        )])
-        for d in st.session_state['needles']:
-            (x1,y1,z1),(x2,y2,z2) = d['points']
-            if d['curved']:
-                t = np.linspace(0,1,50);
-                xs = x1*(1-t)+x2*t; ys = y1*(1-t)+y2*t;
-                zs = z1*(1-t)+z2*t + 5*np.sin(np.pi*t)
+            # Mostrar agujas
+            for needle in st.session_state['needles']:
+                p1, p2 = needle['points']
+                if needle['curved']:
+                    mid = [(p1[i]+p2[i])/2 for i in range(3)]
+                    mid[1] += 5
+                    spline = pv.Spline([p1, mid, p2], 50)
+                    plotter.add_mesh(spline, color=needle['color'], line_width=3)
+                else:
+                    line = pv.Line(p1, p2)
+                    plotter.add_mesh(line, color=needle['color'], line_width=3)
+
+            plotter.show()
+
+        # Herramientas de anotación
+        st.sidebar.title("Anotaciones 3D")
+
+        with st.sidebar.expander("Agregar Punto 3D"):
+            x = st.number_input("X", value=0.0)
+            y = st.number_input("Y", value=0.0)
+            z = st.number_input("Z", value=0.0)
+            if st.button("Agregar punto"):
+                st.session_state['points'].append((x, y, z))
+
+        with st.sidebar.expander("Dibujar Línea"):
+            if len(st.session_state['points']) >= 2:
+                idx1 = st.number_input("Índice punto 1", 0, len(st.session_state['points'])-1)
+                idx2 = st.number_input("Índice punto 2", 0, len(st.session_state['points'])-1)
+                if st.button("Dibujar línea"):
+                    p1 = st.session_state['points'][idx1]
+                    p2 = st.session_state['points'][idx2]
+                    st.session_state['lines'].append((p1, p2))
             else:
-                xs, ys, zs = [x1,x2], [y1,y2], [z1,z2]
-            fig3d.add_trace(go.Scatter3d(
-                x=xs, y=ys, z=zs, mode='lines+markers',
-                marker=dict(size=4, color=d['color']),
-                line=dict(width=3, color=d['color'])
-            ))
-        fig3d.update_layout(margin=dict(l=0,r=0,b=0,t=0))
-        st.subheader('Vista 3D')
-        st.plotly_chart(fig3d, use_container_width=True)
+                st.info("Agrega al menos 2 puntos primero.")
 
-# Pie de página
-st.markdown('<p class="giant-title">BrachyCervix</p>', unsafe_allow_html=True)
-st.markdown("""
-<hr>
-<div style="text-align:center;color:#28aec5;font-size:50px;">
-    BrachyCervix - Semiautomátización y visor para procesos de braquiterapia enfocados en el Cervix
-</div>
-<div style="text-align:center;color:#28aec5;font-size:20px;">
-    Proyecto asignatura medialab 3
-</div>
-<div style="text-align:center;color:#28aec5;font-size:20px;">
-    Universidad EAFIT
-</div>
-<div style="text-align:center;color:#28aec5;font-size:20px;">
-    Clínica Las Américas AUNA
-</div>
-<div style="text-align:center;color:#28aec5;font-size:20px;">
-    - Nicolás Ramirez
-</div>
-<div style="text-align:center;color:#28aec5;font-size:20px;">
-    - Alejandra Montiel
-</div>
-<div style="text-align:center;color:#28aec5;font-size:20px;">
-    - María Camila Díaz
-</div>
-<div style="text-align:center;color:#28aec5;font-size:20px;">
-    - María Paula Jaimes
-</div>
-""", unsafe_allow_html=True)
+        with st.sidebar.expander("Agregar Agujas"):
+            mode = st.radio("Modo", ["Manual", "Aleatoria"])
+            shape = st.radio("Forma", ["Recta", "Curva"])
+            count = st.slider("Cantidad (aleatorio)", 1, 10, 3) if mode == "Aleatoria" else 1
+            x1 = st.number_input("x1", 0, 100, 10)
+            y1 = st.number_input("y1", 0, 100, 10)
+            z1 = st.number_input("z1", 0, 100, 10)
+            x2 = st.number_input("x2", 0, 100, 20)
+            y2 = st.number_input("y2", 0, 100, 20)
+            z2 = st.number_input("z2", 0, 100, 20)
 
+            if st.button('Agregar aguja'):
+                times = count if mode == 'Aleatoria' else 1
+                for _ in range(times):
+                    if mode == 'Aleatoria':
+                        z_val = random.randint(29, 36)
+                        xa, ya, za = 32, 32, z_val
+                        xb, yb, zb = 39, 32, z_val
+                    pts = ((x1,y1,z1),(x2,y2,z2)) if mode == 'Manual' else ((xa,ya,za),(xb,yb,zb))
+                    st.session_state['needles'].append({
+                        'points': pts,
+                        'color': f"#{random.randint(0,0xFFFFFF):06x}",
+                        'curved': (shape == 'Curva')
+                    })
+
+        if st.sidebar.button("Limpiar Todo"):
+            st.session_state['points'] = []
+            st.session_state['lines'] = []
+            st.session_state['needles'] = []
