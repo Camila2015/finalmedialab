@@ -3,14 +3,8 @@ import os
 import pydicom
 import numpy as np
 import pyvista as pv
-from pyvista import themes
 import tempfile
 import random
-
-# Configurar tema de PyVista
-plotter_theme = themes.DefaultTheme()
-plotter_theme.background = 'black'
-plotter_theme.show_edges = True
 
 # Inicializar sesión
 if 'points' not in st.session_state:
@@ -22,10 +16,8 @@ if 'needles' not in st.session_state:
 
 st.title("Visor de Imágenes Médicas DICOM 2D/3D")
 
-# Subir archivos DICOM
 uploaded_files = st.file_uploader("Sube archivos DICOM", accept_multiple_files=True)
 
-# Leer y procesar archivos DICOM
 if uploaded_files:
     with tempfile.TemporaryDirectory() as tmpdirname:
         paths = []
@@ -35,19 +27,16 @@ if uploaded_files:
                 f.write(uploaded_file.getbuffer())
             paths.append(path)
 
-        # Leer los datos DICOM
         datasets = [pydicom.dcmread(p) for p in paths]
         datasets.sort(key=lambda x: float(x.ImagePositionPatient[2]))
 
-        # Construir el volumen 3D
         try:
             volume = np.stack([ds.pixel_array for ds in datasets])
             volume = volume.astype(np.int16)
 
-            # Obtener dimensiones y espaciamiento
             spacing = list(map(float, datasets[0].PixelSpacing))
             spacing.append(float(datasets[0].SliceThickness))
-            spacing = spacing[::-1]  # z, y, x
+            spacing = spacing[::-1]
             vol_shape = volume.shape
 
             grid = pv.UniformGrid()
@@ -59,7 +48,6 @@ if uploaded_files:
             st.error(f"Error procesando los archivos DICOM: {e}")
             st.stop()
 
-        # Selección de vista
         view = st.radio("Selecciona la vista", ["2D", "3D"])
 
         if view == "2D":
@@ -76,21 +64,18 @@ if uploaded_files:
             st.image(img, caption=f"Vista {axis} - Corte {slice_idx}", clamp=True)
 
         else:
-            plotter = pv.Plotter(theme=plotter_theme, window_size=[800,800])
+            plotter = pv.Plotter(off_screen=True, window_size=[800,800])
             opacity = st.slider("Opacidad del volumen", 0.0, 1.0, 0.15)
             plotter.add_volume(grid, opacity=opacity, cmap="bone")
 
-            # Mostrar puntos marcados
             for i, pt in enumerate(st.session_state['points']):
                 plotter.add_mesh(pv.Sphere(radius=1.0, center=pt), color="red")
                 plotter.add_point_labels([pt], [str(i)], point_size=20, font_size=36)
 
-            # Mostrar líneas dibujadas
             for ln in st.session_state['lines']:
                 line = pv.Line(ln[0], ln[1])
                 plotter.add_mesh(line, color="green", line_width=5)
 
-            # Mostrar agujas
             for needle in st.session_state['needles']:
                 p1, p2 = needle['points']
                 if needle['curved']:
@@ -102,9 +87,9 @@ if uploaded_files:
                     line = pv.Line(p1, p2)
                     plotter.add_mesh(line, color=needle['color'], line_width=3)
 
-            plotter.show()
+            plotter.show(jupyter_backend='pythreejs', screenshot='output.png')
+            st.image('output.png')
 
-        # Herramientas de anotación
         st.sidebar.title("Anotaciones 3D")
 
         with st.sidebar.expander("Agregar Punto 3D"):
