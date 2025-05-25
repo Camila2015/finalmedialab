@@ -128,19 +128,21 @@ if img is not None:
                     x2 = st.number_input('X2', 0.0, 64.0, 32.0)
                     y2 = st.number_input('Y2', 0.0, 64.0, 32.0)
                     z2 = st.number_input('Z2', 0.0, 64.0, 32.0)
-            if st.button('Agregar aguja'):
-                # Generar una o varias según modo
-                times = count if mode == 'Aleatoria' else 1
-                for _ in range(times):
-                    if mode == 'Aleatoria':
-                        xa,ya,za = [random.uniform(7,35) for _ in range(3)]
-                        xb,yb,zb = [random.uniform(30,45) for _ in range(3)]
-                    pts = ((x1,y1,z1),(x2,y2,z2)) if mode == 'Manual' else ((xa,ya,za),(xb,yb,zb))
-                    st.session_state['needles'].append({
-                        'points': pts,
-                        'color': f"#{random.randint(0,0xFFFFFF):06x}",
-                        'curved': (shape == 'Curva')
-                    })
+           if st.button('Agregar aguja'):
+    # Generar una o varias según modo
+    times = count if mode == 'Aleatoria' else 1
+    for _ in range(times):
+        if mode == 'Aleatoria':
+            z_val = random.randint(29, 36)
+            xa, ya, za = 32, 32, z_val
+            xb, yb, zb = 39, 32, z_val
+        pts = ((x1,y1,z1),(x2,y2,z2)) if mode == 'Manual' else ((xa,ya,za),(xb,yb,zb))
+        st.session_state['needles'].append({
+            'points': pts,
+            'color': f"#{random.randint(0,0xFFFFFF):06x}",
+            'curved': (shape == 'Curva')
+        })
+
 
         # Tabla editable
         st.markdown('### Registro de agujas')
