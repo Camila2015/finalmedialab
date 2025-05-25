@@ -4,7 +4,6 @@ import random
 import plotly.graph_objects as go
 import pydicom
 import os
-from stl import mesh
 from skimage import measure
 from scipy import ndimage
 
