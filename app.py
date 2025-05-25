@@ -122,18 +122,23 @@ if uploaded_files:
             z2 = st.number_input("z2", 0, 100, 20)
 
             if st.button('Agregar aguja'):
-                times = count if mode == 'Aleatoria' else 1
-                for _ in range(times):
-                    if mode == 'Aleatoria':
-                        z_val = random.randint(29, 36)
-                        xa, ya, za = 32, 32, z_val
-                        xb, yb, zb = 39, 32, z_val
-                    pts = ((x1,y1,z1),(x2,y2,z2)) if mode == 'Manual' else ((xa,ya,za),(xb,yb,zb))
-                    st.session_state['needles'].append({
-                        'points': pts,
-                        'color': f"#{random.randint(0,0xFFFFFF):06x}",
-                        'curved': (shape == 'Curva')
-                    })
+    # Generar una o varias según modo
+    times = count if mode == 'Aleatoria' else 1
+    for _ in range(times):
+        if mode == 'Aleatoria':
+            # Coordenadas fijas con z aleatorio
+            z_random = random.uniform(29, 36)
+            xa, ya, za = 32, 32, z_random
+            xb, yb, zb = 39, 32, z_random
+        else:
+            xa, ya, za = x1, y1, z1
+            xb, yb, zb = x2, y2, z2
+        pts = ((xa, ya, za), (xb, yb, zb))
+        st.session_state['needles'].append({
+            'points': pts,
+            'color': f"#{random.randint(0,0xFFFFFF):06x}",
+            'curved': (shape == 'Curva')
+        })
 
         if st.sidebar.button("Limpiar Todo"):
             st.session_state['points'] = []
