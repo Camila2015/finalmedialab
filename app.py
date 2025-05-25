@@ -208,5 +208,5 @@ st.markdown("""
 </div>
 <div style="text-align:center;color:#28aec5;font-size:20px;">
     - María Paula Jaimes
-</div>
+</div> 
 """, unsafe_allow_html=True)
