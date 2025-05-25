@@ -1,146 +1,135 @@
 import streamlit as st
-import os
-import pydicom
 import numpy as np
-import pyvista as pv
+import matplotlib.pyplot as plt
+import pydicom
+import os
 import tempfile
 import random
+import pyvista as pv
+from streamlit_vtkjs import stpyvista
 
-# Inicializar sesión
-if 'points' not in st.session_state:
-    st.session_state['points'] = []
-if 'lines' not in st.session_state:
-    st.session_state['lines'] = []
-if 'needles' not in st.session_state:
-    st.session_state['needles'] = []
+st.set_page_config(layout="wide")
 
-st.title("Visor de Imágenes Médicas DICOM 2D/3D")
+st.title("Visualizador de Imágenes Médicas DICOM 2D y 3D con Anotaciones")
 
-uploaded_files = st.file_uploader("Sube archivos DICOM", accept_multiple_files=True)
+st.sidebar.header("Cargar archivos DICOM")
+uploaded_files = st.sidebar.file_uploader("Sube múltiples archivos DICOM", type=["dcm"], accept_multiple_files=True)
 
 if uploaded_files:
+    # Crear directorio temporal para almacenar archivos
     with tempfile.TemporaryDirectory() as tmpdirname:
-        paths = []
+        filepaths = []
         for uploaded_file in uploaded_files:
-            path = os.path.join(tmpdirname, uploaded_file.name)
-            with open(path, "wb") as f:
+            filepath = os.path.join(tmpdirname, uploaded_file.name)
+            with open(filepath, "wb") as f:
                 f.write(uploaded_file.getbuffer())
-            paths.append(path)
+            filepaths.append(filepath)
 
-        datasets = [pydicom.dcmread(p) for p in paths]
-        datasets.sort(key=lambda x: float(x.ImagePositionPatient[2]))
+        # Leer los datos DICOM
+        datasets = [pydicom.dcmread(fp) for fp in filepaths]
+        datasets.sort(key=lambda x: float(x.ImagePositionPatient[2]))  # Ordenar por posición Z
 
-        try:
-            volume = np.stack([ds.pixel_array for ds in datasets])
-            volume = volume.astype(np.int16)
+        pixel_arrays = [ds.pixel_array for ds in datasets]
+        volume = np.stack(pixel_arrays, axis=-1)
 
-            spacing = list(map(float, datasets[0].PixelSpacing))
-            spacing.append(float(datasets[0].SliceThickness))
-            spacing = spacing[::-1]
-            vol_shape = volume.shape
+        st.sidebar.header("Controles de visualización 2D")
+        axis = st.sidebar.radio("Selecciona eje", ["Axial (Z)", "Coronal (Y)", "Sagital (X)"])
 
-            grid = pv.UniformGrid()
-            grid.dimensions = np.array(vol_shape) + 1
-            grid.origin = (0, 0, 0)
-            grid.spacing = spacing
-            grid.cell_data["values"] = volume.flatten(order="F")
-        except Exception as e:
-            st.error(f"Error procesando los archivos DICOM: {e}")
-            st.stop()
-
-        view = st.radio("Selecciona la vista", ["2D", "3D"])
-
-        if view == "2D":
-            axis = st.radio("Eje", ["Sagital", "Coronal", "Axial"])
-            slice_idx = st.slider("Índice de la imagen", 0, volume.shape[0]-1 if axis == "Axial" else volume.shape[1]-1 if axis == "Coronal" else volume.shape[2]-1)
-
-            if axis == "Axial":
-                img = volume[slice_idx, :, :]
-            elif axis == "Coronal":
-                img = volume[:, slice_idx, :]
-            elif axis == "Sagital":
-                img = volume[:, :, slice_idx]
-
-            st.image(img, caption=f"Vista {axis} - Corte {slice_idx}", clamp=True)
-
+        if axis == "Axial (Z)":
+            index = st.sidebar.slider("Corte axial", 0, volume.shape[2] - 1, volume.shape[2] // 2)
+            slice_2d = volume[:, :, index]
+        elif axis == "Coronal (Y)":
+            index = st.sidebar.slider("Corte coronal", 0, volume.shape[1] - 1, volume.shape[1] // 2)
+            slice_2d = volume[:, index, :]
         else:
-            plotter = pv.Plotter(off_screen=True, window_size=[800,800])
-            opacity = st.slider("Opacidad del volumen", 0.0, 1.0, 0.15)
-            plotter.add_volume(grid, opacity=opacity, cmap="bone")
+            index = st.sidebar.slider("Corte sagital", 0, volume.shape[0] - 1, volume.shape[0] // 2)
+            slice_2d = volume[index, :, :]
 
-            for i, pt in enumerate(st.session_state['points']):
-                plotter.add_mesh(pv.Sphere(radius=1.0, center=pt), color="red")
-                plotter.add_point_labels([pt], [str(i)], point_size=20, font_size=36)
+        fig, ax = plt.subplots()
+        ax.imshow(slice_2d, cmap="gray")
+        ax.set_title(f"Corte {axis} en índice {index}")
+        ax.axis("off")
+        st.pyplot(fig)
 
-            for ln in st.session_state['lines']:
-                line = pv.Line(ln[0], ln[1])
-                plotter.add_mesh(line, color="green", line_width=5)
+        st.sidebar.header("Controles 3D y Anotaciones")
 
-            for needle in st.session_state['needles']:
-                p1, p2 = needle['points']
-                if needle['curved']:
-                    mid = [(p1[i]+p2[i])/2 for i in range(3)]
-                    mid[1] += 5
-                    spline = pv.Spline([p1, mid, p2], 50)
-                    plotter.add_mesh(spline, color=needle['color'], line_width=3)
-                else:
-                    line = pv.Line(p1, p2)
-                    plotter.add_mesh(line, color=needle['color'], line_width=3)
-
-            plotter.show(jupyter_backend='pythreejs', screenshot='output.png')
-            st.image('output.png')
-
-        st.sidebar.title("Anotaciones 3D")
-
-        with st.sidebar.expander("Agregar Punto 3D"):
-            x = st.number_input("X", value=0.0)
-            y = st.number_input("Y", value=0.0)
-            z = st.number_input("Z", value=0.0)
-            if st.button("Agregar punto"):
-                st.session_state['points'].append((x, y, z))
-
-        with st.sidebar.expander("Dibujar Línea"):
-            if len(st.session_state['points']) >= 2:
-                idx1 = st.number_input("Índice punto 1", 0, len(st.session_state['points'])-1)
-                idx2 = st.number_input("Índice punto 2", 0, len(st.session_state['points'])-1)
-                if st.button("Dibujar línea"):
-                    p1 = st.session_state['points'][idx1]
-                    p2 = st.session_state['points'][idx2]
-                    st.session_state['lines'].append((p1, p2))
-            else:
-                st.info("Agrega al menos 2 puntos primero.")
-
-        with st.sidebar.expander("Agregar Agujas"):
-            mode = st.radio("Modo", ["Manual", "Aleatoria"])
-            shape = st.radio("Forma", ["Recta", "Curva"])
-            count = st.slider("Cantidad (aleatorio)", 1, 10, 3) if mode == "Aleatoria" else 1
-            x1 = st.number_input("x1", 0, 100, 10)
-            y1 = st.number_input("y1", 0, 100, 10)
-            z1 = st.number_input("z1", 0, 100, 10)
-            x2 = st.number_input("x2", 0, 100, 20)
-            y2 = st.number_input("y2", 0, 100, 20)
-            z2 = st.number_input("z2", 0, 100, 20)
-
-            if st.button('Agregar aguja'):
-    # Generar una o varias según modo
-    times = count if mode == 'Aleatoria' else 1
-    for _ in range(times):
-        if mode == 'Aleatoria':
-            # Coordenadas fijas con z aleatorio
-            z_random = random.uniform(29, 36)
-            xa, ya, za = 32, 32, z_random
-            xb, yb, zb = 39, 32, z_random
-        else:
-            xa, ya, za = x1, y1, z1
-            xb, yb, zb = x2, y2, z2
-        pts = ((xa, ya, za), (xb, yb, zb))
-        st.session_state['needles'].append({
-            'points': pts,
-            'color': f"#{random.randint(0,0xFFFFFF):06x}",
-            'curved': (shape == 'Curva')
-        })
-
-        if st.sidebar.button("Limpiar Todo"):
+        if 'points' not in st.session_state:
             st.session_state['points'] = []
+        if 'lines' not in st.session_state:
             st.session_state['lines'] = []
+        if 'needles' not in st.session_state:
             st.session_state['needles'] = []
+
+        add_point = st.sidebar.checkbox("Agregar punto 3D")
+        x = st.sidebar.slider("X", 0, volume.shape[0]-1, volume.shape[0]//2)
+        y = st.sidebar.slider("Y", 0, volume.shape[1]-1, volume.shape[1]//2)
+        z = st.sidebar.slider("Z", 0, volume.shape[2]-1, volume.shape[2]//2)
+
+        if add_point and st.sidebar.button("Agregar punto"):
+            st.session_state['points'].append((x, y, z))
+
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### Agregar líneas entre dos puntos")
+        x1 = st.sidebar.slider("X1", 0, volume.shape[0]-1, volume.shape[0]//2, key="x1")
+        y1 = st.sidebar.slider("Y1", 0, volume.shape[1]-1, volume.shape[1]//2, key="y1")
+        z1 = st.sidebar.slider("Z1", 0, volume.shape[2]-1, volume.shape[2]//2, key="z1")
+        x2 = st.sidebar.slider("X2", 0, volume.shape[0]-1, volume.shape[0]//2, key="x2")
+        y2 = st.sidebar.slider("Y2", 0, volume.shape[1]-1, volume.shape[1]//2, key="y2")
+        z2 = st.sidebar.slider("Z2", 0, volume.shape[2]-1, volume.shape[2]//2, key="z2")
+
+        if st.sidebar.button("Agregar línea"):
+            st.session_state['lines'].append(((x1, y1, z1), (x2, y2, z2)))
+
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### Agujas")
+        shape = st.sidebar.selectbox("Forma de la aguja", ["Recta", "Curva"])
+        mode = st.sidebar.radio("Modo", ["Manual", "Aleatoria"])
+        count = st.sidebar.number_input("Cantidad (si es aleatoria)", min_value=1, value=1)
+
+        if st.button('Agregar aguja'):
+            # Generar una o varias según modo
+            times = count if mode == 'Aleatoria' else 1
+            for _ in range(times):
+                if mode == 'Aleatoria':
+                    # Coordenadas fijas con z aleatorio
+                    z_random = random.uniform(29, 36)
+                    xa, ya, za = 32, 32, z_random
+                    xb, yb, zb = 39, 32, z_random
+                else:
+                    xa, ya, za = x1, y1, z1
+                    xb, yb, zb = x2, y2, z2
+                pts = ((xa, ya, za), (xb, yb, zb))
+                st.session_state['needles'].append({
+                    'points': pts,
+                    'color': f"#{random.randint(0,0xFFFFFF):06x}",
+                    'curved': (shape == 'Curva')
+                })
+
+        # Crear el volumen en PyVista
+        grid = pv.UniformGrid()
+        grid.dimensions = np.array(volume.shape) + 1
+        grid.origin = (0, 0, 0)
+        grid.spacing = (1, 1, 1)
+        grid.cell_data["values"] = volume.flatten(order="F")
+
+        p = pv.Plotter()
+        p.add_volume(grid, cmap="gray", opacity="sigmoid")
+
+        for pt in st.session_state['points']:
+            p.add_mesh(pv.Sphere(radius=1.0, center=pt), color="blue")
+
+        for line in st.session_state['lines']:
+            pts = np.array([line[0], line[1]])
+            p.add_lines(pts, color="red", width=3)
+
+        for needle in st.session_state['needles']:
+            pts = np.array(needle['points'])
+            if needle['curved']:
+                mid = (pts[0] + pts[1]) / 2
+                mid[2] += 3
+                spline = pv.Spline([pts[0], mid, pts[1]], 100)
+                p.add_mesh(spline, color=needle['color'], line_width=3)
+            else:
+                p.add_lines(pts, color=needle['color'], width=3)
+
+        stpyvista(p, key="pv-render")
