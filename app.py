@@ -10,7 +10,7 @@ from skimage import measure
 st.set_page_config(layout="wide")
 st.title("Visualizador DICOM 2D y 3D (Compatible con Streamlit Cloud)")
 
-uploaded_files = st.file_uploader("Sube los archivos DICOM", type=[".dcm"], accept_multiple_files=True)
+uploaded_files = st.file_uploader("Sube los archivos DICOM", type=["dcm"], accept_multiple_files=True)
 
 @st.cache_data(show_spinner=False)
 def load_dicom_series(files):
